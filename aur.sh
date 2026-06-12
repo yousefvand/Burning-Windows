@@ -24,7 +24,7 @@ GITHUB_TAG="local-source"
 SOURCE_URL="local-source-tarball-committed-to-AUR"
 
 AUR_REPO="ssh://aur@aur.archlinux.org/${PKGNAME}.git"
-WORKDIR="$(pwd)/aur-${PKGNAME}"
+WORKDIR="/tmp/aur-${PKGNAME}"
 LOCAL_PROJECT_DIR="$(pwd)"
 SOURCE_DIR_NAME="${PKGNAME}-${PKGVER}"
 SOURCE_FILE="${PKGNAME}-${PKGVER}.tar.gz"
