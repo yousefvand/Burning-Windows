@@ -1,0 +1,18 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Remisa Phillips"
+            }
+        ],
+        "Category": "Window Open/Close Animation",
+        "Description": "Native backend for the Burning Windows Desktop Effects toggle.",
+        "EnabledByDefault": true,
+        "License": "MIT",
+        "Name": "Remisa Burn Backend",
+        "Version": "0.1.0"
+    },
+    "org.kde.kwin.effect": {
+        "exclusiveGroup": "toplevel-open-close-animation"
+    }
+}

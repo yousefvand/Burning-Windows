@@ -1,0 +1,20 @@
+{
+    "KPackageStructure": "KWin/Effect",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Remisa Phillips"
+            }
+        ],
+        "Category": "Window Open/Close Animation",
+        "Description": "Toggle the Remisa Phillips burning window close animation.",
+        "EnabledByDefault": true,
+        "Icon": "preferences-system-windows-effect",
+        "Id": "burning_windows",
+        "License": "MIT",
+        "Name": "Burning Windows",
+        "Version": "0.1.0"
+    },
+    "X-KDE-Ordering": 60,
+    "X-Plasma-API": "declarativescript"
+}
