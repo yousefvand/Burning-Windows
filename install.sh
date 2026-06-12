@@ -9,7 +9,7 @@ BUILD_DIR="$ROOT_DIR/build"
 cat <<MSG
 Installing ${APP_NAME} ${VERSION} external-native-safe26
 
-This keeps the safe25 burn effect and adds a user-facing Desktop Effects toggle:
+This keeps the safe burn effect and adds a user-facing Desktop Effects toggle:
   Settings => Desktop Effects => Burning Windows
 
 Author: Remisa Phillips
@@ -35,7 +35,7 @@ for id in remisa_burn kwin4_effect_remisa_burn kwin6_effect_remisa_burn burning_
     sudo rm -rf "/usr/share/kwin-wayland/effects/${id}"
 done
 kbuildsycoca6 --noincremental || true
-echo "Remisa Burn / Burning Windows removed. Restart the computer."
+echo "Burning / Windows removed. Restart the computer."
 RESCUE
 chmod +x "$ROOT_DIR/rescue-remisa.sh"
 

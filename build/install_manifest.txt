@@ -1,0 +1,3 @@
+/usr/lib/qt6/plugins/kwin/effects/plugins/remisa_burn.so
+/usr/share/kwin/effects/burning_windows/contents/ui/main.qml
+/usr/share/kwin/effects/burning_windows/metadata.json
