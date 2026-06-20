@@ -2,9 +2,9 @@
 set -euo pipefail
 
 PKGNAME="burning-windows"
-PKGVER="0.1.1"
+PKGVER="0.1.2"
 GITHUB_REPO="yousefvand/Burning-Windows"
-GITHUB_TAG="0.1.1"
+GITHUB_TAG="0.1.2"
 SOURCE_URL="https://github.com/${GITHUB_REPO}/archive/refs/tags/${GITHUB_TAG}.tar.gz"
 SOURCE_FILE="${PKGNAME}-${PKGVER}.tar.gz"
 TMPDIR_BASE="/tmp/${PKGNAME}-sha256-check"

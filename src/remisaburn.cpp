@@ -15,10 +15,13 @@
 #include <QSettings>
 #include <QStandardPaths>
 
+#include <chrono>
+
 namespace KWin
 {
 
 static constexpr int BurnFoundationDurationMs = 780;
+static constexpr auto BurnFoundationDuration = std::chrono::milliseconds{BurnFoundationDurationMs};
 static constexpr uint RemisaGenericMeta = 0x52;
 static constexpr uint RemisaShaderMeta = 0x53;
 
@@ -165,7 +168,7 @@ void main()
 )SHADER");
 
     m_burnShader = manager->generateCustomShader(ShaderTraits(ShaderTrait::MapTexture), QByteArray(), fragmentSource);
-    if (!m_burnShader || !m_burnShader->isValid()) {
+    if (!m_burnShader) {
         qWarning() << "Remisa Burn external-native-safe26: burn shader is invalid; falling back to safe non-shader animation";
         m_burnShader.reset();
         return;
@@ -254,7 +257,7 @@ void RemisaBurnEffect::slotWindowClosed(KWin::EffectWindow *window)
     const quint64 genericId = animate(window,
                                       AnimationEffect::Generic,
                                       RemisaGenericMeta,
-                                      BurnFoundationDurationMs,
+                                      BurnFoundationDuration,
                                       FPx2(1.0),
                                       QEasingCurve::Linear,
                                       0,
@@ -262,13 +265,13 @@ void RemisaBurnEffect::slotWindowClosed(KWin::EffectWindow *window)
                                       false,
                                       true);
 
-    if (m_burnShader && m_burnShader->isValid()) {
+    if (m_burnShader) {
         // Safe22 deliberately lets the shader do the consumption instead of
         // shrinking the whole window. This should feel more like burning.
         shaderId = animate(window,
                            AnimationEffect::Shader,
                            RemisaShaderMeta,
-                           BurnFoundationDurationMs,
+                           BurnFoundationDuration,
                            FPx2(1.0),
                            QEasingCurve::Linear,
                            0,
@@ -285,7 +288,7 @@ void RemisaBurnEffect::slotWindowClosed(KWin::EffectWindow *window)
         fallbackScaleId = animate(window,
                                   AnimationEffect::Scale,
                                   scaleMeta,
-                                  BurnFoundationDurationMs,
+                                  BurnFoundationDuration,
                                   FPx2(1.0, 0.02),
                                   QEasingCurve::InCubic,
                                   0,
@@ -296,7 +299,7 @@ void RemisaBurnEffect::slotWindowClosed(KWin::EffectWindow *window)
         fallbackOpacityId = animate(window,
                                     AnimationEffect::Opacity,
                                     0,
-                                    BurnFoundationDurationMs,
+                                    BurnFoundationDuration,
                                     FPx2(0.0),
                                     QEasingCurve::InCubic,
                                     0,

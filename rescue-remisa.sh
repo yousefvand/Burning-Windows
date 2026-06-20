@@ -12,4 +12,4 @@ for id in remisa_burn kwin4_effect_remisa_burn kwin6_effect_remisa_burn burning_
     sudo rm -rf "/usr/share/kwin-wayland/effects/${id}"
 done
 kbuildsycoca6 --noincremental || true
-echo "Remisa Burn / Burning Windows removed. Restart the computer."
+echo "Burning / Windows removed. Restart the computer."

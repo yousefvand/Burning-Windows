@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/data/Code/Burning-Windows/build/cmake_install.cmake",
-		"/data/Code/Burning-Windows/build/src/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

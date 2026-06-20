@@ -2,15 +2,15 @@
 set -euo pipefail
 
 PKGNAME="burning-windows"
-PKGVER="0.1.1"
+PKGVER="0.1.2"
 PKGREL="1"
 PKGDESC="Burning Windows effect for KDE Plasma/KWin"
 
 GITHUB_REPO="yousefvand/Burning-Windows"
-GITHUB_TAG="0.1.1"
+GITHUB_TAG="0.1.2"
 SOURCE_URL="https://github.com/${GITHUB_REPO}/archive/refs/tags/${GITHUB_TAG}.tar.gz"
 
-EXPECTED_SHA256="7b2e5a487adb4cbd92212f669db42f31c94cfc214a8b03a06caccc9d8ec5ee19"
+EXPECTED_SHA256=""
 
 AUR_REPO="ssh://aur@aur.archlinux.org/${PKGNAME}.git"
 WORKDIR="/tmp/aur-${PKGNAME}"
