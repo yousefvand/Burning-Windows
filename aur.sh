@@ -8,9 +8,9 @@ PKGDESC="Burning Windows effect for KDE Plasma/KWin"
 
 GITHUB_REPO="yousefvand/Burning-Windows"
 GITHUB_TAG="0.1.2"
-SOURCE_URL="https://github.com/${GITHUB_REPO}/archive/refs/tags/${GITHUB_TAG}.tar.gz"
+SOURCE_URL="https://github.com/${GITHUB_REPO}/archive/refs/tags/v${GITHUB_TAG}.tar.gz"
 
-EXPECTED_SHA256=""
+EXPECTED_SHA256="28891b2bfadaff6854101ba140607fec53c93b4d41cfae9d7faed123f5cfff7e"
 
 AUR_REPO="ssh://aur@aur.archlinux.org/${PKGNAME}.git"
 WORKDIR="/tmp/aur-${PKGNAME}"
