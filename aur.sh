@@ -8,7 +8,7 @@ AUR_REPO="ssh://aur@aur.archlinux.org/${PKGNAME}.git"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-for cmd in git sed awk grep makepkg bsdtar; do
+for cmd in git sed awk grep makepkg bsdtar find; do
     command -v "$cmd" >/dev/null 2>&1 || {
         echo "ERROR: $cmd is required." >&2
         exit 1
@@ -72,8 +72,9 @@ TEMPLATE="$ROOT_DIR/packaging/PKGBUILD.template"
 
 WORK_DIR="$(mktemp -d "/tmp/${PKGNAME}-aur.XXXXXX")"
 AUR_DIR="$WORK_DIR/aur"
+BUILD_DIR="$WORK_DIR/build"
 VALIDATION_DIR="$WORK_DIR/validation"
-mkdir -p "$VALIDATION_DIR"
+mkdir -p "$BUILD_DIR" "$VALIDATION_DIR"
 
 cleanup() {
     rm -rf "$WORK_DIR"
@@ -87,7 +88,12 @@ git clone "$AUR_REPO" "$AUR_DIR"
 
 existing_pkgver="$(sed -n 's/^pkgver=//p' "$AUR_DIR/PKGBUILD" 2>/dev/null | head -n 1 || true)"
 existing_pkgrel="$(sed -n 's/^pkgrel=//p' "$AUR_DIR/PKGBUILD" 2>/dev/null | head -n 1 || true)"
-existing_commit="$(sed -n "s/^_commit=['\"]\([^'\"]*\)['\"]$/\1/p" "$AUR_DIR/PKGBUILD" 2>/dev/null | head -n 1 || true)"
+existing_commit="$(
+    sed -n \
+        -e "s/^_source_commit=['\"]\([^'\"]*\)['\"]$/\1/p" \
+        -e "s/^_commit=['\"]\([^'\"]*\)['\"]$/\1/p" \
+        "$AUR_DIR/PKGBUILD" 2>/dev/null | head -n 1 || true
+)"
 
 if [[ "$existing_pkgver" == "$PKGVER" && "$existing_commit" == "$GITHUB_COMMIT" ]]; then
     echo "==> AUR already points to GitHub commit ${GITHUB_COMMIT}; nothing to publish."
@@ -121,18 +127,25 @@ fi
 
 cd "$AUR_DIR"
 
-# Remove source archives committed by older package revisions. VCS sources are
-# downloaded by makepkg and must not be stored in the AUR Git repository.
+# Remove source archives that older package revisions committed to AUR.
 while IFS= read -r old_source; do
     [[ -n "$old_source" ]] || continue
     git rm -f -- "$old_source"
 done < <(git ls-files "${PKGNAME}-*.tar.gz" "${PKGNAME}-*.zip")
-rm -f -- "${PKGNAME}-"*.tar.gz "${PKGNAME}-"*.zip 2>/dev/null || true
 
 makepkg --printsrcinfo > .SRCINFO
+
+# Build outside the AUR repository. VCS source caches, src/, pkg/, and package
+# archives must never be created or staged inside an AUR Git repository.
+cp "$AUR_DIR/PKGBUILD" "$BUILD_DIR/PKGBUILD"
+cd "$BUILD_DIR"
 makepkg -f --clean --noconfirm
 
-PKGFILE="$(find . -maxdepth 1 -type f -name "${PKGNAME}-${PKGVER}-${PKGREL}-any.pkg.tar.*" -print -quit)"
+PKGFILE="$(
+    find "$BUILD_DIR" -maxdepth 1 -type f \
+        -name "${PKGNAME}-${PKGVER}-${PKGREL}-any.pkg.tar.*" \
+        -print -quit
+)"
 [[ -n "$PKGFILE" ]] || {
     echo "ERROR: the package archive was not created." >&2
     exit 1
@@ -143,10 +156,19 @@ grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/metadata.json' "$VA
 grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/contents/code/main.js' "$VALIDATION_DIR/package.list" >/dev/null
 grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/contents/shaders/burn_core.frag' "$VALIDATION_DIR/package.list" >/dev/null
 
-rm -f -- ./*.pkg.tar.*
-rm -rf -- src pkg
+cd "$AUR_DIR"
 
-git add -A
+# Stage only tracked changes/deletions plus the two allowed package metadata files.
+# Never stage untracked makepkg artifacts.
+git add -u
+git add -- PKGBUILD .SRCINFO
+
+if git diff --cached --name-only | grep -q '/'; then
+    echo "ERROR: refusing to publish: the AUR commit contains a subdirectory." >&2
+    git diff --cached --name-only >&2
+    exit 1
+fi
+
 if git diff --cached --quiet; then
     echo "==> AUR is already up to date; nothing to publish."
     exit 0
