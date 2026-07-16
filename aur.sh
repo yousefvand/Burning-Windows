@@ -2,14 +2,13 @@
 set -euo pipefail
 
 PKGNAME="burning-windows"
-PKGREL="1"
 GITHUB_REPO="yousefvand/Burning-Windows"
 AUR_REPO="ssh://aur@aur.archlinux.org/${PKGNAME}.git"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-for cmd in git curl sha256sum tar sed awk grep makepkg bsdtar; do
+for cmd in git sed awk grep makepkg bsdtar; do
     command -v "$cmd" >/dev/null 2>&1 || {
         echo "ERROR: $cmd is required." >&2
         exit 1
@@ -21,6 +20,10 @@ done
     exit 1
 }
 
+# Release workflow:
+#   git commit -m "v0.1.1"
+#   git push
+#   ./aur.sh
 COMMIT_MESSAGE="$(git log -1 --pretty=%s)"
 if [[ ! "$COMMIT_MESSAGE" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
     echo "ERROR: the latest commit message must be a version such as v0.1.1." >&2
@@ -37,8 +40,8 @@ CURRENT_BRANCH="$(git branch --show-current)"
     exit 1
 }
 
-# aur.sh never pushes the project to GitHub. It only verifies that the current
-# release commit is already available there before publishing the AUR package.
+# GitHub is managed outside this script. We only verify that the exact release
+# commit is already published before the AUR package points to it.
 REMOTE_SHA="$(
     git ls-remote "https://github.com/${GITHUB_REPO}.git" "refs/heads/${CURRENT_BRANCH}" \
         | awk 'NR == 1 {print $1}'
@@ -58,12 +61,16 @@ if [[ "$METADATA_VERSION" != "$PKGVER" ]]; then
     exit 1
 fi
 
-SOURCE_URL="https://github.com/${GITHUB_REPO}/archive/${GITHUB_COMMIT}.tar.gz"
-SOURCE_FILE="${PKGNAME}-${PKGVER}.tar.gz"
+TEMPLATE="$ROOT_DIR/packaging/PKGBUILD.template"
+[[ -f "$TEMPLATE" ]] || {
+    echo "ERROR: packaging/PKGBUILD.template is missing." >&2
+    exit 1
+}
+
 WORK_DIR="$(mktemp -d "/tmp/${PKGNAME}-aur.XXXXXX")"
-SOURCE_DIR="$WORK_DIR/source"
 AUR_DIR="$WORK_DIR/aur"
-mkdir -p "$SOURCE_DIR"
+VALIDATION_DIR="$WORK_DIR/validation"
+mkdir -p "$VALIDATION_DIR"
 
 cleanup() {
     rm -rf "$WORK_DIR"
@@ -72,51 +79,54 @@ trap cleanup EXIT
 
 echo "==> Version: v${PKGVER}"
 echo "==> GitHub commit: ${GITHUB_COMMIT}"
-echo "==> Downloading the already-published source from GitHub"
-curl -fL --retry 3 --retry-delay 2 \
-    -o "$SOURCE_DIR/$SOURCE_FILE" \
-    "$SOURCE_URL"
+echo "==> Cloning the AUR repository"
+git clone "$AUR_REPO" "$AUR_DIR"
 
-SHA256="$(sha256sum "$SOURCE_DIR/$SOURCE_FILE" | awk '{print $1}')"
-tar -tzf "$SOURCE_DIR/$SOURCE_FILE" > "$SOURCE_DIR/archive.list"
-ARCHIVE_ROOT="$(awk -F/ 'NF {print $1; exit}' "$SOURCE_DIR/archive.list")"
-TEMPLATE_PATH="${ARCHIVE_ROOT}/packaging/PKGBUILD.template"
+existing_pkgver="$(sed -n 's/^pkgver=//p' "$AUR_DIR/PKGBUILD" 2>/dev/null | head -n 1 || true)"
+existing_pkgrel="$(sed -n 's/^pkgrel=//p' "$AUR_DIR/PKGBUILD" 2>/dev/null | head -n 1 || true)"
+existing_commit="$(sed -n "s/^_commit=['\"]\([^'\"]*\)['\"]$/\1/p" "$AUR_DIR/PKGBUILD" 2>/dev/null | head -n 1 || true)"
 
-[[ -n "$ARCHIVE_ROOT" ]] || {
-    echo "ERROR: could not determine the GitHub archive root." >&2
-    exit 1
-}
+if [[ "$existing_pkgver" == "$PKGVER" && "$existing_commit" == "$GITHUB_COMMIT" ]]; then
+    echo "==> AUR already points to GitHub commit ${GITHUB_COMMIT}; nothing to publish."
+    exit 0
+fi
 
-grep -Fx "$TEMPLATE_PATH" "$SOURCE_DIR/archive.list" >/dev/null || {
-    echo "ERROR: packaging/PKGBUILD.template is missing from the GitHub source." >&2
-    exit 1
-}
+if [[ "$existing_pkgver" == "$PKGVER" && "$existing_pkgrel" =~ ^[0-9]+$ ]]; then
+    PKGREL="$((existing_pkgrel + 1))"
+else
+    PKGREL="1"
+fi
 
-tar -xOzf "$SOURCE_DIR/$SOURCE_FILE" "$TEMPLATE_PATH" > "$SOURCE_DIR/PKGBUILD.template"
+echo "==> AUR package release: ${PKGVER}-${PKGREL}"
 
 escape_sed() {
     printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
 }
 
-render_pkgbuild() {
-    sed \
-        -e "s|@PKGVER@|$(escape_sed "$PKGVER")|g" \
-        -e "s|@PKGREL@|$(escape_sed "$PKGREL")|g" \
-        -e "s|@GITHUB_REPO@|$(escape_sed "$GITHUB_REPO")|g" \
-        -e "s|@GITHUB_COMMIT@|$(escape_sed "$GITHUB_COMMIT")|g" \
-        -e "s|@ARCHIVE_ROOT@|$(escape_sed "$ARCHIVE_ROOT")|g" \
-        -e "s|@SHA256@|$(escape_sed "$SHA256")|g" \
-        "$SOURCE_DIR/PKGBUILD.template"
-}
+sed \
+    -e "s|@PKGVER@|$(escape_sed "$PKGVER")|g" \
+    -e "s|@PKGREL@|$(escape_sed "$PKGREL")|g" \
+    -e "s|@GITHUB_REPO@|$(escape_sed "$GITHUB_REPO")|g" \
+    -e "s|@GITHUB_COMMIT@|$(escape_sed "$GITHUB_COMMIT")|g" \
+    "$TEMPLATE" > "$AUR_DIR/PKGBUILD"
 
-echo "==> Cloning the AUR repository"
-git clone "$AUR_REPO" "$AUR_DIR"
-render_pkgbuild > "$AUR_DIR/PKGBUILD"
+if grep -qE '@(PKGVER|PKGREL|GITHUB_REPO|GITHUB_COMMIT)@' "$AUR_DIR/PKGBUILD"; then
+    echo "ERROR: unresolved placeholder in generated PKGBUILD." >&2
+    exit 1
+fi
 
 cd "$AUR_DIR"
+
+# Older revisions of this package stored source archives in the AUR repository.
+# They are not part of an AUR package definition and can shadow makepkg sources.
+while IFS= read -r old_source; do
+    [[ -n "$old_source" ]] || continue
+    git rm -f -- "$old_source"
+done < <(git ls-files "${PKGNAME}-*.tar.gz" "${PKGNAME}-*.zip")
+rm -f -- "${PKGNAME}-"*.tar.gz "${PKGNAME}-"*.zip 2>/dev/null || true
+
 makepkg --printsrcinfo > .SRCINFO
-SRCDEST="$SOURCE_DIR" makepkg --verifysource --noconfirm
-SRCDEST="$SOURCE_DIR" makepkg -f --clean --noconfirm
+makepkg -f --clean --noconfirm
 
 PKGFILE="$(find . -maxdepth 1 -type f -name "${PKGNAME}-${PKGVER}-${PKGREL}-any.pkg.tar.*" -print -quit)"
 [[ -n "$PKGFILE" ]] || {
@@ -124,19 +134,21 @@ PKGFILE="$(find . -maxdepth 1 -type f -name "${PKGNAME}-${PKGVER}-${PKGREL}-any.
     exit 1
 }
 
-bsdtar -tf "$PKGFILE" > "$SOURCE_DIR/package.list"
-grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/metadata.json' "$SOURCE_DIR/package.list" >/dev/null
-grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/contents/code/main.js' "$SOURCE_DIR/package.list" >/dev/null
-grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/contents/shaders/burn_core.frag' "$SOURCE_DIR/package.list" >/dev/null
-rm -f -- ./*.pkg.tar.*
+bsdtar -tf "$PKGFILE" > "$VALIDATION_DIR/package.list"
+grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/metadata.json' "$VALIDATION_DIR/package.list" >/dev/null
+grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/contents/code/main.js' "$VALIDATION_DIR/package.list" >/dev/null
+grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/contents/shaders/burn_core.frag' "$VALIDATION_DIR/package.list" >/dev/null
 
-git add PKGBUILD .SRCINFO
+rm -f -- ./*.pkg.tar.*
+rm -rf -- src pkg
+
+git add -A
 if git diff --cached --quiet; then
     echo "==> AUR is already up to date; nothing to publish."
     exit 0
 fi
 
-git commit -m "v${PKGVER}"
+git commit -m "v${PKGVER}-${PKGREL}"
 git push origin HEAD:master
 
 echo "==> Published ${PKGNAME} ${PKGVER}-${PKGREL} to AUR."
