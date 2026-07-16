@@ -1,117 +1,123 @@
 # Burning Windows
 
-**Burning Windows** is a native KWin effect for **KDE Plasma 6 on Wayland**. It adds a burning animation when normal application windows are closed.
+**Burning Windows** is a bottom-to-top burning close animation for KDE Plasma 6 KWin.
 
 ![Burning Windows demo](demo.png)
 
 ## Features
 
-- Bottom-to-top burning close animation
-- Transparent burned area, so the desktop or windows behind remain visible
-- Works with normal decorated windows and fullscreen application windows
-- Skips popups, menus, dialogs, Plasma/internal windows, panels, and other special windows
-- Toggle available in:
-
-```text
-System Settings → Desktop Effects → Burning Windows
-```
-
-- No KWin source patching required
-- No compositor replacement required
-- Native KWin effect backend with a small Desktop Effects toggle package
+- Bottom-to-top burn on normal application-window close
+- Transparent consumed area with flame, glow, and ash dissolve
+- Normal decorated and fullscreen application windows
+- Popups, menus, dialogs, panels, Plasma internals, and special windows are skipped
+- Standard Animations-page entry and exclusive close-animation category
+- Opacity fallback when KWin cannot create the custom shader
+- Plasma 6 Wayland focus
 
 ## Requirements
 
-- Arch Linux or Arch-based distribution
-- KDE Plasma 6
-- KWin 6
-- Wayland session
-- Qt 6
-- CMake and KDE development tools for building from source
+- KDE Plasma 6 / KWin 6 or later
+- An OpenGL-capable KWin compositor for the full shader effect
 
-Recommended packages for building manually:
+## AUR installation
 
 ```bash
-sudo pacman -S --needed base-devel cmake extra-cmake-modules qt6-base qt6-tools kwin
+ yay -S burning-windows
 ```
 
-## Installation from AUR
-
-```bash
-yay -S burning-windows
-```
-
-After the first installation, reboot once. Then enable the effect from:
+Enable the effect at:
 
 ```text
-System Settings → Desktop Effects → Burning Windows
+System Settings -> search for "Animations" -> Window Open/Close Animation -> Burning Windows
 ```
 
-After that, enabling and disabling the effect from Desktop Effects does not require a restart.
+### Upgrading from 0.1.0
 
-## Manual installation
+Upgrade normally through the AUR. Reboot once after this migration so the running KWin process unloads the old native `remisa_burn` module. This is a one-time migration step, not something required after later KWin updates.
 
-From the project root:
+The old 0.1.0 `uninstall.sh` removed files directly. If 0.1.0 had originally been installed through AUR/pacman, running that script did **not** remove the package record. In that state, either upgrade normally with `yay -S burning-windows`, or remove the stale registered package with `sudo pacman -R burning-windows` before using the per-user `./install.sh`.
+
+The package deliberately has no pacman install script that edits a user's home directory. Legacy `burning_windowsEnabled` settings are disabled during manual migration. New users select `Burning Windows` on the System Settings **Animations** page. Since Plasma 6.4, window open/close animations are intentionally hidden from the older Desktop Effects page.
+
+## Manual per-user installation
+
+Do not mix this with the AUR package.
 
 ```bash
 ./install.sh
 ```
 
-Then reboot once.
+The effect is installed under:
 
-## Uninstallation
+```text
+~/.local/share/kwin/effects/kwin4_effect_burning_windows
+```
 
-From the project root:
+Remove a manual installation with:
 
 ```bash
 ./uninstall.sh
 ```
 
-Then reboot once.
+## Distribution packaging
 
-## Technical notes
-
-Burning Windows uses a native KWin effect backend with the internal effect id:
+The project has no build products. A system package only needs to copy `package/` to:
 
 ```text
-remisa_burn
+/usr/share/kwin/effects/kwin4_effect_burning_windows
 ```
 
-The visible Desktop Effects entry is named:
+A minimal CMake install is also available:
 
-```text
-Burning Windows
+```bash
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr
+DESTDIR="$pkgdir" cmake --install build
 ```
 
-The effect is designed for Plasma 6 Wayland. X11 is not a target for this project.
+## Validation
+
+```bash
+./tests/validate.sh
+```
+
+The validation script checks metadata, shell syntax, JavaScript syntax when Node.js is available, version consistency, and the CMake install tree.
 
 ## Troubleshooting
 
-Check whether KWin can see the native effect:
+First open the correct settings module (Plasma 6.4 or later):
 
 ```bash
-qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.listOfEffects | grep -i remisa
-qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.isEffectSupported remisa_burn
-qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.isEffectLoaded remisa_burn
+kcmshell6 kcm_animations
 ```
 
-Expected result:
+Window open/close effects no longer appear on the Desktop Effects page.
+
+Check whether KWin can see and load the effect:
+
+```bash
+qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.listOfEffects | grep kwin4_effect_burning_windows
+qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.isEffectSupported kwin4_effect_burning_windows
+qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.isEffectLoaded kwin4_effect_burning_windows
+```
+
+Inspect the current-session log:
+
+```bash
+journalctl --user -b | grep -i 'Burning Windows\|kwin4_effect_burning_windows'
+```
+
+Installed package layout:
 
 ```text
-remisa_burn
-true
-true
+package/
+├── metadata.json
+└── contents/
+    ├── code/main.js
+    └── shaders/
+        ├── burn.frag
+        └── burn_core.frag
 ```
-
-Check logs:
-
-```bash
-journalctl --user -b | grep -i "Remisa Burn\|Burning Windows\|remisa"
-```
-
-If the effect was just installed and does not appear yet, reboot once.
 
 ## License
 
 MIT License.
-

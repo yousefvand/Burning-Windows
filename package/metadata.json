@@ -1,0 +1,24 @@
+{
+    "KPackageStructure": "KWin/Effect",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Remisa Phillips"
+            }
+        ],
+        "Category": "Window Open/Close Animation",
+        "Description": "Burn normal application windows from bottom to top when they close.",
+        "EnabledByDefault": false,
+        "Icon": "preferences-system-windows-effect",
+        "Id": "kwin4_effect_burning_windows",
+        "License": "MIT",
+        "Name": "Burning Windows",
+        "Version": "0.1.1",
+        "Website": "https://github.com/yousefvand/Burning-Windows"
+    },
+    "X-KDE-Ordering": 60,
+    "X-KDE-ParentApp": "kwin",
+    "X-KWin-Exclusive-Category": "toplevel-open-close-animation",
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js"
+}

@@ -2,192 +2,141 @@
 set -euo pipefail
 
 PKGNAME="burning-windows"
-PKGVER="0.1.3"
 PKGREL="1"
-PKGDESC="Burning Windows effect for KDE Plasma/KWin"
-
 GITHUB_REPO="yousefvand/Burning-Windows"
-GITHUB_TAG="0.1.3"
-SOURCE_URL="https://github.com/${GITHUB_REPO}/archive/refs/tags/${GITHUB_TAG}.tar.gz"
-
-EXPECTED_SHA256="28891b2bfadaff6854101ba140607fec53c93b4d41cfae9d7faed123f5cfff7e"
-
 AUR_REPO="ssh://aur@aur.archlinux.org/${PKGNAME}.git"
-WORKDIR="/tmp/aur-${PKGNAME}"
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+for cmd in git curl sha256sum tar sed awk grep makepkg bsdtar; do
+    command -v "$cmd" >/dev/null 2>&1 || {
+        echo "ERROR: $cmd is required." >&2
+        exit 1
+    }
+done
+
+[[ -d .git ]] || {
+    echo "ERROR: aur.sh must be run from the Burning-Windows Git repository." >&2
+    exit 1
+}
+
+COMMIT_MESSAGE="$(git log -1 --pretty=%s)"
+if [[ ! "$COMMIT_MESSAGE" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    echo "ERROR: the latest commit message must be a version such as v0.1.1." >&2
+    echo "Current message: $COMMIT_MESSAGE" >&2
+    exit 1
+fi
+
+PKGVER="${BASH_REMATCH[1]}"
+GITHUB_COMMIT="$(git rev-parse HEAD)"
+CURRENT_BRANCH="$(git branch --show-current)"
+
+[[ -n "$CURRENT_BRANCH" ]] || {
+    echo "ERROR: detached HEAD is not supported." >&2
+    exit 1
+}
+
+# aur.sh never pushes the project to GitHub. It only verifies that the current
+# release commit is already available there before publishing the AUR package.
+REMOTE_SHA="$(
+    git ls-remote "https://github.com/${GITHUB_REPO}.git" "refs/heads/${CURRENT_BRANCH}" \
+        | awk 'NR == 1 {print $1}'
+)"
+
+if [[ "$REMOTE_SHA" != "$GITHUB_COMMIT" ]]; then
+    echo "ERROR: the current commit is not the tip of GitHub branch ${CURRENT_BRANCH}." >&2
+    echo "Push the project to GitHub first, then run ./aur.sh again." >&2
+    echo "Local:  $GITHUB_COMMIT" >&2
+    echo "Remote: ${REMOTE_SHA:-not found}" >&2
+    exit 1
+fi
+
+METADATA_VERSION="$(sed -n 's/.*"Version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package/metadata.json | head -n 1)"
+if [[ "$METADATA_VERSION" != "$PKGVER" ]]; then
+    echo "ERROR: package/metadata.json is version ${METADATA_VERSION:-unknown}, but the commit is v${PKGVER}." >&2
+    exit 1
+fi
+
+SOURCE_URL="https://github.com/${GITHUB_REPO}/archive/${GITHUB_COMMIT}.tar.gz"
 SOURCE_FILE="${PKGNAME}-${PKGVER}.tar.gz"
-SRC_DIR="Burning-Windows-${GITHUB_TAG}"
+WORK_DIR="$(mktemp -d "/tmp/${PKGNAME}-aur.XXXXXX")"
+SOURCE_DIR="$WORK_DIR/source"
+AUR_DIR="$WORK_DIR/aur"
+mkdir -p "$SOURCE_DIR"
 
-msg() { printf '\n==> %s\n' "$*"; }
-err() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
+cleanup() {
+    rm -rf "$WORK_DIR"
+}
+trap cleanup EXIT
 
-command -v git >/dev/null || err "git is required"
-command -v curl >/dev/null || err "curl is required"
-command -v makepkg >/dev/null || err "makepkg is required"
-command -v sha256sum >/dev/null || err "sha256sum is required"
-command -v tar >/dev/null || err "tar is required"
+echo "==> Version: v${PKGVER}"
+echo "==> GitHub commit: ${GITHUB_COMMIT}"
+echo "==> Downloading the already-published source from GitHub"
+curl -fL --retry 3 --retry-delay 2 \
+    -o "$SOURCE_DIR/$SOURCE_FILE" \
+    "$SOURCE_URL"
 
-if [[ $# -ne 0 ]]; then
-  err "This script accepts no arguments. Edit variables at the top of aur.sh instead."
-fi
+SHA256="$(sha256sum "$SOURCE_DIR/$SOURCE_FILE" | awk '{print $1}')"
+tar -tzf "$SOURCE_DIR/$SOURCE_FILE" > "$SOURCE_DIR/archive.list"
+ARCHIVE_ROOT="$(awk -F/ 'NF {print $1; exit}' "$SOURCE_DIR/archive.list")"
+TEMPLATE_PATH="${ARCHIVE_ROOT}/packaging/PKGBUILD.template"
 
-msg "aur.sh hardcoded SHA256 version: 2026-06-13-12"
-
-if [[ ! "${EXPECTED_SHA256}" =~ ^[0-9a-fA-F]{64}$ ]]; then
-  err "Set EXPECTED_SHA256 to the trusted 64-character SHA256 before publishing."
-fi
-
-TMPDIR_CHECK="$(mktemp -d)"
-trap 'rm -rf "${TMPDIR_CHECK}"' EXIT
-
-msg "Verifying GitHub tag tarball against hardcoded SHA256"
-echo "URL: ${SOURCE_URL}"
-curl -L --fail --retry 3 --retry-delay 2 -o "${TMPDIR_CHECK}/${SOURCE_FILE}" "${SOURCE_URL}"
-ACTUAL_SHA256="$(sha256sum "${TMPDIR_CHECK}/${SOURCE_FILE}" | awk '{print $1}')"
-tar -tzf "${TMPDIR_CHECK}/${SOURCE_FILE}" > "${TMPDIR_CHECK}/tar-list.txt"
-ROOT_DIR="$(sed -n '1s#/.*##p' "${TMPDIR_CHECK}/tar-list.txt")"
-
-echo "Expected SHA256: ${EXPECTED_SHA256}"
-echo "Actual SHA256:   ${ACTUAL_SHA256}"
-echo "Tarball root:    ${ROOT_DIR}"
-
-[[ "${ACTUAL_SHA256}" == "${EXPECTED_SHA256}" ]] || err "Downloaded tarball does not match hardcoded SHA256. Refusing to publish."
-[[ "${ROOT_DIR}" == "${SRC_DIR}" ]] || err "Unexpected tarball root '${ROOT_DIR}'. Expected '${SRC_DIR}'. Check GITHUB_TAG/SRC_DIR."
-
-msg "Preparing AUR working directory: ${WORKDIR}"
-rm -rf "${WORKDIR}"
-
-if git clone "${AUR_REPO}" "${WORKDIR}"; then
-  msg "Cloned existing AUR repository"
-else
-  msg "Could not clone existing AUR repo; creating fresh local AUR repository"
-  mkdir -p "${WORKDIR}"
-  git -C "${WORKDIR}" init
-  git -C "${WORKDIR}" remote add origin "${AUR_REPO}"
-fi
-
-cd "${WORKDIR}"
-
-if git rev-parse --verify master >/dev/null 2>&1; then
-  git checkout master
-fi
-
-msg "Cleaning AUR working tree and removing wrongly committed source archives"
-git reset --hard HEAD >/dev/null 2>&1 || true
-git clean -fdx >/dev/null 2>&1 || true
-rm -rf src pkg build "${SRC_DIR}" "${PKGNAME}-${PKGVER}" *.pkg.tar.* *.pkg.tar.*.sig *.log
-rm -f ./*.tar.gz ./*.tar.xz ./*.tar.zst ./*.zip
-
-msg "Writing PKGBUILD"
-cat > PKGBUILD <<PKGBUILD_EOF
-# Maintainer: Masoud Yousefvand <yousefvand@gmail.com>
-pkgname=${PKGNAME}
-pkgver=${PKGVER}
-pkgrel=${PKGREL}
-pkgdesc='${PKGDESC}'
-arch=('x86_64')
-url='https://github.com/${GITHUB_REPO}'
-license=('GPL')
-depends=(
-  'kwin'
-  'kcoreaddons'
-  'kconfig'
-  'kconfigwidgets'
-  'ki18n'
-  'kcmutils'
-  'qt6-base'
-  'qt6-declarative'
-)
-makedepends=(
-  'cmake'
-  'extra-cmake-modules'
-  'ninja'
-  'gcc'
-)
-install='burning-windows.install'
-source=("${PKGNAME}-${PKGVER}.tar.gz::https://github.com/${GITHUB_REPO}/archive/refs/tags/${GITHUB_TAG}.tar.gz")
-sha256sums=('${EXPECTED_SHA256}')
-
-build() {
-  cmake -S "\$srcdir/${SRC_DIR}" -B build -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/usr \
-    -DKDE_INSTALL_LIBDIR=lib \
-    -DKDE_INSTALL_LIBEXECDIR=lib \
-    -DKDE_INSTALL_USE_QT_SYS_PATHS=ON
-  cmake --build build
+[[ -n "$ARCHIVE_ROOT" ]] || {
+    echo "ERROR: could not determine the GitHub archive root." >&2
+    exit 1
 }
 
-package() {
-  DESTDIR="\$pkgdir" cmake --install build
-}
-PKGBUILD_EOF
-
-msg "Writing pacman install script"
-cat > burning-windows.install <<'INSTALL_EOF'
-post_install() {
-  echo ""
-  echo "Burning Windows has been installed."
-  echo ""
-  echo "IMPORTANT: KDE's built-in 'Fall Apart' effect conflicts with Burning Windows."
-  echo "This package tries to enable Burning Windows and disable conflicting effects for the installing user."
-  echo "If it does not apply automatically, set these in ~/.config/kwinrc under [Plugins]:"
-  echo "  remisa_burnEnabled=true"
-  echo "  burning_windowsEnabled=true"
-  echo "  fallapartEnabled=false"
-  echo "  glideEnabled=false"
-  echo ""
-
-  target_user="${SUDO_USER:-}"
-  if [ -z "$target_user" ] || [ "$target_user" = "root" ]; then
-    target_user="$(logname 2>/dev/null || true)"
-  fi
-
-  if [ -n "$target_user" ] && command -v runuser >/dev/null 2>&1; then
-    runuser -u "$target_user" -- kwriteconfig6 --file kwinrc --group Plugins --key remisa_burnEnabled true 2>/dev/null || true
-    runuser -u "$target_user" -- kwriteconfig6 --file kwinrc --group Plugins --key burning_windowsEnabled true 2>/dev/null || true
-    runuser -u "$target_user" -- kwriteconfig6 --file kwinrc --group Plugins --key fallapartEnabled false 2>/dev/null || true
-    runuser -u "$target_user" -- kwriteconfig6 --file kwinrc --group Plugins --key glideEnabled false 2>/dev/null || true
-  fi
-
-  echo "Please REBOOT your system now. Do not only logout/login."
-  echo ""
+grep -Fx "$TEMPLATE_PATH" "$SOURCE_DIR/archive.list" >/dev/null || {
+    echo "ERROR: packaging/PKGBUILD.template is missing from the GitHub source." >&2
+    exit 1
 }
 
-post_upgrade() {
-  post_install
+tar -xOzf "$SOURCE_DIR/$SOURCE_FILE" "$TEMPLATE_PATH" > "$SOURCE_DIR/PKGBUILD.template"
+
+escape_sed() {
+    printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
 }
 
-post_remove() {
-  echo "Burning Windows has been removed. Reboot KDE Plasma to fully unload the effect."
+render_pkgbuild() {
+    sed \
+        -e "s|@PKGVER@|$(escape_sed "$PKGVER")|g" \
+        -e "s|@PKGREL@|$(escape_sed "$PKGREL")|g" \
+        -e "s|@GITHUB_REPO@|$(escape_sed "$GITHUB_REPO")|g" \
+        -e "s|@GITHUB_COMMIT@|$(escape_sed "$GITHUB_COMMIT")|g" \
+        -e "s|@ARCHIVE_ROOT@|$(escape_sed "$ARCHIVE_ROOT")|g" \
+        -e "s|@SHA256@|$(escape_sed "$SHA256")|g" \
+        "$SOURCE_DIR/PKGBUILD.template"
 }
-INSTALL_EOF
 
-msg "Generating .SRCINFO"
+echo "==> Cloning the AUR repository"
+git clone "$AUR_REPO" "$AUR_DIR"
+render_pkgbuild > "$AUR_DIR/PKGBUILD"
+
+cd "$AUR_DIR"
 makepkg --printsrcinfo > .SRCINFO
+SRCDEST="$SOURCE_DIR" makepkg --verifysource --noconfirm
+SRCDEST="$SOURCE_DIR" makepkg -f --clean --noconfirm
 
-msg "Verifying source through makepkg"
-SRCDEST="${TMPDIR_CHECK}" makepkg --verifysource --noconfirm
+PKGFILE="$(find . -maxdepth 1 -type f -name "${PKGNAME}-${PKGVER}-${PKGREL}-any.pkg.tar.*" -print -quit)"
+[[ -n "$PKGFILE" ]] || {
+    echo "ERROR: the package archive was not created." >&2
+    exit 1
+}
 
-msg "Building package locally before publishing"
-SRCDEST="${TMPDIR_CHECK}" makepkg -f --clean --syncdeps --noconfirm
+bsdtar -tf "$PKGFILE" > "$SOURCE_DIR/package.list"
+grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/metadata.json' "$SOURCE_DIR/package.list" >/dev/null
+grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/contents/code/main.js' "$SOURCE_DIR/package.list" >/dev/null
+grep -F 'usr/share/kwin/effects/kwin4_effect_burning_windows/contents/shaders/burn_core.frag' "$SOURCE_DIR/package.list" >/dev/null
+rm -f -- ./*.pkg.tar.*
 
-msg "Checking package installed-file list"
-PKGFILE="$(find . -maxdepth 1 -type f -name "${PKGNAME}-${PKGVER}-${PKGREL}-*.pkg.tar.*" | sort | sed -n '1p')"
-bsdtar -tf "${PKGFILE}" | grep -E 'remisa_burn|burning_windows|main.qml|metadata.json' || err "Built package does not contain expected KWin files"
-
-msg "Removing build artifacts before AUR commit"
-rm -rf src pkg build "${SRC_DIR}" "${PKGNAME}-${PKGVER}" *.pkg.tar.* *.pkg.tar.*.sig *.log
-rm -f ./*.tar.gz ./*.tar.xz ./*.tar.zst ./*.zip
-
-git add PKGBUILD .SRCINFO burning-windows.install
-
+git add PKGBUILD .SRCINFO
 if git diff --cached --quiet; then
-  msg "No AUR changes to commit"
-else
-  git commit -m "Update ${PKGNAME} to ${PKGVER}-${PKGREL}"
+    echo "==> AUR is already up to date; nothing to publish."
+    exit 0
 fi
 
-msg "Pushing to AUR"
-git push origin master
+git commit -m "v${PKGVER}"
+git push origin HEAD:master
 
-msg "Done. Users can install with: yay -S ${PKGNAME}"
+echo "==> Published ${PKGNAME} ${PKGVER}-${PKGREL} to AUR."

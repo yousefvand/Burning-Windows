@@ -1,113 +1,86 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="kwin6-effect-remisa-burn"
-VERSION="0.1.0"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="$ROOT_DIR/build"
+PACKAGE_DIR="$ROOT_DIR/package"
+EFFECT_ID="kwin4_effect_burning_windows"
+LEGACY_EFFECT_ID="burning_windows"
 
-cat <<MSG
-Installing ${APP_NAME} ${VERSION} external-native-safe26
+command -v kpackagetool6 >/dev/null 2>&1 || {
+    echo "ERROR: kpackagetool6 was not found. Install KDE Frameworks/KPackage first." >&2
+    exit 1
+}
 
-This keeps the safe burn effect and adds a user-facing Desktop Effects toggle:
-  Settings => Desktop Effects => Burning Windows
+if command -v pacman >/dev/null 2>&1 && pacman -Q burning-windows >/dev/null 2>&1; then
+    installed_package="$(pacman -Q burning-windows)"
+    cat >&2 <<MSG
+ERROR: pacman still has this package registered:
+  ${installed_package}
 
-Author: Remisa Phillips
+The 0.1.0 uninstall script removed the installed effect files directly, but it
+could not remove pacman's package-database entry. Deleting files is therefore
+not the same as uninstalling an AUR package.
 
-The visible "Burning Windows" entry is a no-op KWin package used only as a checkbox.
-The real native backend remains: remisa_burn
+Choose one installation route:
 
-Restart the computer after installation.
+  Upgrade the pacman/AUR package:
+    yay -S burning-windows
+
+  Or remove the registered package before a per-user test installation:
+    sudo pacman -R burning-windows
+    ./install.sh
+
+The installer will not mix a pacman-managed package with files under ~/.local.
 MSG
+    exit 1
+fi
 
-cat > "$ROOT_DIR/rescue-remisa.sh" <<'RESCUE'
-#!/usr/bin/env bash
-set -euo pipefail
-for id in remisa_burn kwin4_effect_remisa_burn kwin6_effect_remisa_burn burning_windows; do
-    kwriteconfig6 --file kwinrc --group Plugins --key "${id}Enabled" false || true
-    sudo rm -f "/usr/lib/qt6/plugins/kwin/effects/plugins/${id}.so"
-    sudo rm -f "/usr/lib/qt6/plugins/kwin/plugins/${id}.so"
-    sudo rm -f "/usr/lib/qt/plugins/kwin/effects/plugins/${id}.so"
-    sudo rm -f "/usr/share/kwin/builtin-effects/${id}.json"
-    sudo rm -f "/usr/share/kwin-wayland/builtin-effects/${id}.json"
-    sudo rm -f "/usr/share/kservices6/kwin/${id}.desktop"
-    sudo rm -rf "/usr/share/kwin/effects/${id}"
-    sudo rm -rf "/usr/share/kwin-wayland/effects/${id}"
-done
-kbuildsycoca6 --noincremental || true
-echo "Burning / Windows removed. Restart the computer."
-RESCUE
-chmod +x "$ROOT_DIR/rescue-remisa.sh"
+# Remove both the broken 0.1.1 test package and any previous corrected install.
+kpackagetool6 --type KWin/Effect --remove "$LEGACY_EFFECT_ID" >/dev/null 2>&1 || true
+kpackagetool6 --type KWin/Effect --remove "$EFFECT_ID" >/dev/null 2>&1 || true
+kpackagetool6 --type KWin/Effect --install "$PACKAGE_DIR"
 
-echo
-echo "[1/5] Installing/checking Arch build dependencies..."
-sudo pacman -S --needed base-devel cmake extra-cmake-modules qt6-base qt6-tools kwin
+# The old C++ backend must not be enabled after migration.
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 --file kwinrc --group Plugins --key remisa_burnEnabled false || true
+    kwriteconfig6 --file kwinrc --group Plugins --key burning_windowsEnabled false || true
+fi
 
-echo
-echo "[2/5] Removing stale/broken experiment files..."
-for id in remisa_burn kwin4_effect_remisa_burn kwin6_effect_remisa_burn burning_windows; do
-    kwriteconfig6 --file kwinrc --group Plugins --key "${id}Enabled" false || true
-    sudo rm -f "/usr/lib/qt6/plugins/kwin/effects/plugins/${id}.so"
-    sudo rm -f "/usr/lib/qt6/plugins/kwin/plugins/${id}.so"
-    sudo rm -f "/usr/lib/qt/plugins/kwin/effects/plugins/${id}.so"
-    sudo rm -f "/usr/share/kwin/builtin-effects/${id}.json"
-    sudo rm -f "/usr/share/kwin-wayland/builtin-effects/${id}.json"
-    sudo rm -f "/usr/share/kservices6/kwin/${id}.desktop"
-    sudo rm -rf "/usr/share/kwin/effects/${id}"
-    sudo rm -rf "/usr/share/kwin-wayland/effects/${id}"
+# Clean only unowned legacy files created by the old manual installer.
+legacy_files=(
+    /usr/lib/qt6/plugins/kwin/effects/plugins/remisa_burn.so
+    /usr/lib/qt6/plugins/kwin/plugins/remisa_burn.so
+    /usr/lib/qt/plugins/kwin/effects/plugins/remisa_burn.so
+)
+
+for file in "${legacy_files[@]}"; do
+    [[ -e "$file" ]] || continue
+    if command -v pacman >/dev/null 2>&1 && pacman -Qo "$file" >/dev/null 2>&1; then
+        echo "Keeping pacman-owned legacy file: $file"
+    else
+        echo "Removing legacy native plugin: $file"
+        sudo rm -f "$file"
+    fi
 done
 
-# Avoid conflict with built-in close effects.
-kwriteconfig6 --file kwinrc --group Plugins --key fallapartEnabled false || true
-kwriteconfig6 --file kwinrc --group Plugins --key glideEnabled false || true
-kbuildsycoca6 --noincremental || true
+command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+command -v qdbus6 >/dev/null 2>&1 && qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
 
-echo
-echo "[3/5] Configuring..."
-rm -rf "$BUILD_DIR"
-cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+cat <<'MSG'
 
-echo
-echo "[4/5] Building..."
-cmake --build "$BUILD_DIR" --parallel "$(nproc)"
+Burning Windows 0.1.1 was installed as a per-user KWin scripted effect.
+Its KWin plugin id is kwin4_effect_burning_windows.
+Enable it in:
+  Open System Settings and search for: Animations
+  Then choose Burning Windows for Window Open/Close Animation.
 
-echo
-echo "[5/5] Installing native backend and Desktop Effects toggle..."
-sudo cmake --install "$BUILD_DIR"
+  Or open the page directly:
+    kcmshell6 kcm_animations
 
-INSTALLED="/usr/lib/qt6/plugins/kwin/effects/plugins/remisa_burn.so"
-TOGGLE_META="/usr/share/kwin/effects/burning_windows/metadata.json"
-TOGGLE_QML="/usr/share/kwin/effects/burning_windows/contents/ui/main.qml"
+On Plasma 6.4 and later, this class of effect is intentionally not listed on
+the Desktop Effects page.
 
-if [[ ! -f "$INSTALLED" ]]; then
-    echo "ERROR: expected native backend not found: $INSTALLED" >&2
-    exit 1
-fi
-if [[ ! -f "$TOGGLE_META" ]]; then
-    echo "ERROR: expected Desktop Effects metadata not found: $TOGGLE_META" >&2
-    exit 1
-fi
-if [[ ! -f "$TOGGLE_QML" ]]; then
-    echo "ERROR: expected Desktop Effects no-op QML not found: $TOGGLE_QML" >&2
-    exit 1
-fi
-
-# The backend must stay loaded. The visible checkbox controls burning_windowsEnabled.
-kwriteconfig6 --file kwinrc --group Plugins --key remisa_burnEnabled true
-kwriteconfig6 --file kwinrc --group Plugins --key burning_windowsEnabled true
-kbuildsycoca6 --noincremental || true
-
-cat <<MSG
-
-Installed successfully:
-  $INSTALLED
-  $TOGGLE_META
-  $TOGGLE_QML
-
-Restart the computer now.
-
-After reboot, use:
-  Settings => Desktop Effects => Burning Windows
-
-to enable/disable the effect without restart.
+When migrating from version 0.1.0, log out and back in once so KWin unloads
+the old native remisa_burn module. Later KWin updates do not require rebuilding
+or reinstalling this version.
 MSG

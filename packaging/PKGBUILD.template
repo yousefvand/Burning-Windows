@@ -1,0 +1,19 @@
+# Maintainer: Masoud Yousefvand <yousefvand@gmail.com>
+pkgname=burning-windows
+pkgver=@PKGVER@
+pkgrel=@PKGREL@
+pkgdesc='Bottom-to-top burning close animation for KDE Plasma 6 KWin'
+arch=('any')
+url='https://github.com/@GITHUB_REPO@'
+license=('MIT')
+depends=('kwin>=6.0')
+_commit='@GITHUB_COMMIT@'
+_archive_root='@ARCHIVE_ROOT@'
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/${_commit}.tar.gz")
+sha256sums=('@SHA256@')
+
+package() {
+    cd "$srcdir/${_archive_root}"
+    install -d "$pkgdir/usr/share/kwin/effects/kwin4_effect_burning_windows"
+    cp -a package/. "$pkgdir/usr/share/kwin/effects/kwin4_effect_burning_windows/"
+}

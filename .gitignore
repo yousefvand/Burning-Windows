@@ -1,2 +1,7 @@
-aur-burning-windows/
-build/
+/build/
+/pkg/
+*.pkg.tar.*
+*.tar.gz
+*.zip
+.SRCINFO
+PKGBUILD
