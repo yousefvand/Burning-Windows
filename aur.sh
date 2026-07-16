@@ -20,7 +20,7 @@ done
     exit 1
 }
 
-# Release workflow:
+# Expected workflow:
 #   git commit -m "v0.1.1"
 #   git push
 #   ./aur.sh
@@ -40,8 +40,7 @@ CURRENT_BRANCH="$(git branch --show-current)"
     exit 1
 }
 
-# GitHub is managed outside this script. We only verify that the exact release
-# commit is already published before the AUR package points to it.
+# GitHub is managed outside this script. Verify only that HEAD is already pushed.
 REMOTE_SHA="$(
     git ls-remote "https://github.com/${GITHUB_REPO}.git" "refs/heads/${CURRENT_BRANCH}" \
         | awk 'NR == 1 {print $1}'
@@ -55,9 +54,13 @@ if [[ "$REMOTE_SHA" != "$GITHUB_COMMIT" ]]; then
     exit 1
 fi
 
-METADATA_VERSION="$(sed -n 's/.*"Version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package/metadata.json | head -n 1)"
+METADATA_VERSION="$(
+    sed -n 's/.*"Version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+        package/metadata.json | head -n 1
+)"
+
 if [[ "$METADATA_VERSION" != "$PKGVER" ]]; then
-    echo "ERROR: package/metadata.json is version ${METADATA_VERSION:-unknown}, but the commit is v${PKGVER}." >&2
+    echo "ERROR: package/metadata.json is version ${METADATA_VERSION:-unknown}, but the latest commit is v${PKGVER}." >&2
     exit 1
 fi
 
@@ -110,15 +113,16 @@ sed \
     -e "s|@GITHUB_COMMIT@|$(escape_sed "$GITHUB_COMMIT")|g" \
     "$TEMPLATE" > "$AUR_DIR/PKGBUILD"
 
-if grep -qE '@(PKGVER|PKGREL|GITHUB_REPO|GITHUB_COMMIT)@' "$AUR_DIR/PKGBUILD"; then
-    echo "ERROR: unresolved placeholder in generated PKGBUILD." >&2
+if grep -qE '@[A-Z0-9_]+@' "$AUR_DIR/PKGBUILD"; then
+    echo "ERROR: unresolved placeholder in generated PKGBUILD:" >&2
+    grep -nE '@[A-Z0-9_]+@' "$AUR_DIR/PKGBUILD" >&2
     exit 1
 fi
 
 cd "$AUR_DIR"
 
-# Older revisions of this package stored source archives in the AUR repository.
-# They are not part of an AUR package definition and can shadow makepkg sources.
+# Remove source archives committed by older package revisions. VCS sources are
+# downloaded by makepkg and must not be stored in the AUR Git repository.
 while IFS= read -r old_source; do
     [[ -n "$old_source" ]] || continue
     git rm -f -- "$old_source"
